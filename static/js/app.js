@@ -15,6 +15,7 @@ const elements = {
     refreshBtn: document.getElementById('refresh-btn'),
     refreshSpinner: document.getElementById('refresh-spinner'),
     searchInput: document.getElementById('search-input'),
+    exportCsvBtn: document.getElementById('export-csv-btn'),
     categoryFiltersContainer: document.getElementById('category-filters-container'),
     sortSelect: document.getElementById('sort-select'),
     feedGrid: document.getElementById('feed-grid'),
@@ -79,15 +80,23 @@ function setTheme(theme) {
     state.theme = theme;
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('bq-notes-theme', theme);
+    if (elements.themeToggle) {
+        elements.themeToggle.checked = theme === 'dark';
+    }
 }
 
 function setupEventListeners() {
-    // Theme Toggle
-    elements.themeToggle.addEventListener('click', () => {
-        const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
+    // Theme Toggle (checkbox switch)
+    elements.themeToggle.addEventListener('change', (e) => {
+        const nextTheme = e.target.checked ? 'dark' : 'light';
         setTheme(nextTheme);
         showToast(`Switched to ${nextTheme} mode`, 'info');
     });
+
+    // Export CSV Button
+    if (elements.exportCsvBtn) {
+        elements.exportCsvBtn.addEventListener('click', exportToCSV);
+    }
 
     // Refresh Button
     elements.refreshBtn.addEventListener('click', () => {
@@ -340,6 +349,13 @@ function renderFeed() {
                 ${bodyHtml}
             </div>
             <div class="card-actions">
+                <button class="btn-card-action btn-card-copy" aria-label="Copy this update to clipboard">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4.5px;">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    Copy
+                </button>
                 <button class="btn-card-action btn-card-tweet" aria-label="Tweet this update">
                     <svg width="12" height="12" viewBox="0 0 1200 1227" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: 4px;">
                         <path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.137 519.284H714.163ZM569.165 687.828L521.697 619.934L144.011 79.6944H306.615L611.268 515.685L658.737 583.579L1055.08 1150.3H892.476L569.165 687.854V687.828Z" fill="currentColor"/>
@@ -352,6 +368,10 @@ function renderFeed() {
         // Card Click selection (avoid triggering when clicking on links or action buttons)
         card.addEventListener('click', (e) => {
             if (e.target.closest('a') || e.target.closest('.btn-card-action') || e.target.closest('code')) {
+                // If clicked copy action
+                if (e.target.closest('.btn-card-copy')) {
+                    copyNoteToClipboard(note);
+                }
                 // If clicked tweet action
                 if (e.target.closest('.btn-card-tweet')) {
                     openComposer(note);
@@ -556,6 +576,64 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
+}
+
+// Copy Note to Clipboard Function
+function copyNoteToClipboard(note) {
+    const textToCopy = `BigQuery Update: ${note.category} (${note.date})\n\n${note.content_text}\n\nLink: ${note.link}`;
+    navigator.clipboard.writeText(textToCopy).then(() => {
+        showToast('Copied to clipboard!', 'success');
+    }).catch(err => {
+        console.error('Could not copy text: ', err);
+        showToast('Failed to copy text', 'error');
+    });
+}
+
+// Export to CSV Function
+function exportToCSV() {
+    if (state.filteredNotes.length === 0) {
+        showToast('No notes available to export', 'warning');
+        return;
+    }
+    
+    // Headers
+    const headers = ['ID', 'Date', 'Category', 'Content', 'Link'];
+    
+    // Rows
+    const rows = state.filteredNotes.map(note => [
+        note.id,
+        note.date,
+        note.category,
+        note.content_text,
+        note.link
+    ]);
+    
+    // CSV content generation helper (handles quotes and commas)
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(val => {
+            const escaped = ('' + val).replace(/"/g, '""');
+            return `"${escaped}"`;
+        }).join(','))
+    ].join('\r\n');
+    
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    
+    // Name with date
+    const dateStr = new Date().toISOString().split('T')[0];
+    const categoryStr = state.activeCategory === 'all' ? 'all' : state.activeCategory;
+    link.setAttribute('download', `bigquery_releases_${categoryStr}_${dateStr}.csv`);
+    
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showToast(`Exported ${state.filteredNotes.length} updates to CSV!`, 'success');
 }
 
 // Toast Helpers
